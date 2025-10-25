@@ -24,7 +24,10 @@ curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
 
 # Wait for K3s to be ready
 echo ">> Waiting for K3s..."
-sleep 30
+sleep 60
+
+# Set KUBECONFIG for all kubectl commands (after K3s is installed)
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 # Check K3s status
 systemctl status k3s --no-pager
@@ -60,7 +63,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 # Wait for Argo CD to be ready
 echo ">> Waiting for Argo CD pods..."
-kubectl wait --for=condition=Ready pods --all -n argocd --timeout=600s
+kubectl wait --for=condition=Ready pods --all -n argocd --timeout=900s
 
 # Patch Argo CD server to use NodePort
 echo ">> Exposing Argo CD UI..."
@@ -86,6 +89,8 @@ spec:
     repoURL: ${gitops_repo}
     targetRevision: main
     path: aws-resources-viewer
+    helm:
+      releaseName: aws-resources-viewer
   destination:
     server: https://kubernetes.default.svc
     namespace: default

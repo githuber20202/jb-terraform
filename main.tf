@@ -14,6 +14,101 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+# Try to get default VPC
+data "aws_vpc" "default" {
+  default = true
+}
+
+# Get all VPCs as fallback
+data "aws_vpcs" "all" {}
+
+# Use default VPC if exists, otherwise create one
+locals {
+  use_default_vpc = try(data.aws_vpc.default.id, null) != null
+  vpc_id          = local.use_default_vpc ? data.aws_vpc.default.id : aws_vpc.main[0].id
+}
+
+# Create VPC only if no default VPC exists
+resource "aws_vpc" "main" {
+  count = local.use_default_vpc ? 0 : 1
+
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name    = "${var.project_name}-vpc"
+    Project = var.project_name
+  }
+}
+
+# Create Internet Gateway only if we created VPC
+resource "aws_internet_gateway" "main" {
+  count = local.use_default_vpc ? 0 : 1
+
+  vpc_id = aws_vpc.main[0].id
+
+  tags = {
+    Name    = "${var.project_name}-igw"
+    Project = var.project_name
+  }
+}
+
+# Create subnet only if we created VPC
+resource "aws_subnet" "main" {
+  count = local.use_default_vpc ? 0 : 1
+
+  vpc_id                  = aws_vpc.main[0].id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[0]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.project_name}-subnet"
+    Project = var.project_name
+  }
+}
+
+# Get availability zones
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+# Create route table only if we created VPC
+resource "aws_route_table" "main" {
+  count = local.use_default_vpc ? 0 : 1
+
+  vpc_id = aws_vpc.main[0].id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main[0].id
+  }
+
+  tags = {
+    Name    = "${var.project_name}-rt"
+    Project = var.project_name
+  }
+}
+
+# Associate route table with subnet
+resource "aws_route_table_association" "main" {
+  count = local.use_default_vpc ? 0 : 1
+
+  subnet_id      = aws_subnet.main[0].id
+  route_table_id = aws_route_table.main[0].id
+}
+
+# Get default subnet if using default VPC
+data "aws_subnets" "default" {
+  count = local.use_default_vpc ? 1 : 0
+
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 # Create key pair
 resource "aws_key_pair" "jb_key" {
   key_name   = "${var.project_name}-key"
@@ -24,6 +119,7 @@ resource "aws_key_pair" "jb_key" {
 resource "aws_security_group" "jb_sg" {
   name        = "${var.project_name}-sg"
   description = "Security group for JB project K3s cluster"
+  vpc_id      = local.vpc_id
 
   # SSH
   ingress {
@@ -52,7 +148,7 @@ resource "aws_security_group" "jb_sg" {
     description = "Application access"
   }
 
-  # Argo CD UI (optional)
+  # Argo CD UI
   ingress {
     from_port   = 30443
     to_port     = 30443
@@ -82,10 +178,16 @@ resource "aws_instance" "k3s" {
   instance_type = var.instance_type
   key_name      = aws_key_pair.jb_key.key_name
 
+  # Use default subnet if exists, otherwise use created subnet
+  subnet_id = local.use_default_vpc ? sort(data.aws_subnets.default[0].ids)[0] : aws_subnet.main[0].id
+
   vpc_security_group_ids = [aws_security_group.jb_sg.id]
 
+  # Ensure public IP
+  associate_public_ip_address = true
+
   root_block_device {
-    volume_size = 20  # GB (Free tier: 30GB)
+    volume_size = 20
     volume_type = "gp3"
   }
 
