@@ -91,6 +91,8 @@ spec:
     path: aws-resources-viewer
     helm:
       releaseName: aws-resources-viewer
+      valueFiles:
+        - values.yaml 
   destination:
     server: https://kubernetes.default.svc
     namespace: default
