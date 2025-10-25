@@ -192,8 +192,11 @@ resource "aws_instance" "k3s" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    gitops_repo  = var.gitops_repo
-    docker_image = var.docker_image
+    gitops_repo           = var.gitops_repo
+    docker_image          = var.docker_image
+    aws_access_key_id     = var.aws_access_key_id
+    aws_secret_access_key = var.aws_secret_access_key
+    aws_app_region        = var.aws_app_region
   })
 
   tags = {

@@ -107,14 +107,33 @@ terraform destroy
 
 ## Variables
 
-| Name | Description | Default |
-|------|-------------|---------|
-| aws_region | AWS region | us-east-1 |
-| instance_type | EC2 instance type | t2.micro |
-| project_name | Project name for tagging | jb-project |
-| your_ip | Your IP for SSH access | (prompt) |
-| gitops_repo | GitOps repository URL | github.com/githuber20202/jb-gitops.git |
-| docker_image | Docker image | formy5000/resources_viewer |
+| Name | Description | Default | Required |
+|------|-------------|---------|----------|
+| aws_region | AWS region for Terraform | us-east-1 | No |
+| instance_type | EC2 instance type | t2.small | No |
+| project_name | Project name for tagging | jb-project | No |
+| your_ip | Your IP for SSH access | - | Yes |
+| gitops_repo | GitOps repository URL | github.com/githuber20202/jb-gitops.git | No |
+| docker_image | Docker image | formy5000/resources_viewer | No |
+| **aws_access_key_id** | **AWS Access Key for app** | - | **Yes** |
+| **aws_secret_access_key** | **AWS Secret Key for app** | - | **Yes** |
+| **aws_app_region** | **AWS region for app to query** | us-east-1 | No |
+
+### AWS Credentials Configuration
+
+The application requires AWS credentials to query AWS resources. These credentials are:
+- Stored as a Kubernetes Secret (not in Git!)
+- Created automatically during EC2 bootstrap
+- Used by the application Pod to access AWS APIs
+
+**Important:** Add these to `terraform.tfvars`:
+```hcl
+aws_access_key_id     = "AKIAIOSFODNN7EXAMPLE"
+aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+aws_app_region        = "us-east-1"
+```
+
+**Note:** `terraform.tfvars` is in `.gitignore` - your credentials won't be committed to Git.
 
 ## Security
 

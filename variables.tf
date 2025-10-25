@@ -33,3 +33,21 @@ variable "docker_image" {
   type        = string
   default     = "formy5000/resources_viewer"
 }
+
+variable "aws_access_key_id" {
+  description = "AWS Access Key ID for the application"
+  type        = string
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  description = "AWS Secret Access Key for the application"
+  type        = string
+  sensitive   = true
+}
+
+variable "aws_app_region" {
+  description = "AWS Region for the application to query resources"
+  type        = string
+  default     = "us-east-1"
+}

@@ -53,6 +53,21 @@ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 echo ">> Waiting for K3s nodes..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
+# Create AWS Credentials Secret (before ArgoCD sync)
+echo ">> Creating AWS credentials Secret..."
+cat <<SECRETEOF | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-credentials
+  namespace: default
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "${aws_access_key_id}"
+  AWS_SECRET_ACCESS_KEY: "${aws_secret_access_key}"
+  AWS_DEFAULT_REGION: "${aws_app_region}"
+SECRETEOF
+
 # Create Argo CD namespace
 echo ">> Creating Argo CD namespace..."
 kubectl create namespace argocd
