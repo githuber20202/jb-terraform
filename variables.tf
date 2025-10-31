@@ -45,6 +45,7 @@ variable "aws_secret_access_key" {
   description = "AWS Secret Access Key for the application"
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "aws_app_region" {
