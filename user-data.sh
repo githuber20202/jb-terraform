@@ -49,23 +49,6 @@ rm kubectl
 echo ">> Installing Helm..."
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# Install KEDA with K3s-compatible settings
-echo ">> Installing KEDA..."
-helm repo add kedacore https://kedacore.github.io/charts
-helm repo update
-helm install keda kedacore/keda \
-  --namespace keda \
-  --create-namespace \
-  --set podSecurityContext.runAsNonRoot=false \
-  --set podSecurityContext.runAsUser=0 \
-  --set securityContext.runAsNonRoot=false \
-  --set securityContext.runAsUser=0 \
-  --wait
-
-# Verify KEDA installation
-echo ">> Verifying KEDA installation..."
-kubectl get pods -n keda
-
 # Wait for K3s to be fully ready
 echo ">> Waiting for K3s nodes..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
