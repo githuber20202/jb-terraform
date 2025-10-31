@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t2.small"  # Free tier!
+  default     = "t3.medium"
 }
 
 variable "project_name" {
