@@ -1,4 +1,4 @@
-#  JB CI/CD Project - Terraform Infrastructure with GitOps
+# JB CI/CD Project - Terraform Infrastructure with GitOps
 
 **Author:** Alexander Yasheyev  
 **Institution:** JB College  
@@ -43,134 +43,183 @@ This project demonstrates a complete **Infrastructure as Code (IaC)** and **GitO
 
 ## 🏗️ Architecture
 
-### High-Level Architecture Diagram
+### High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          AWS Cloud (us-east-1)                       │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    VPC (Default or Custom)                    │   │
-│  │                                                                │   │
-│  │  ┌──────────────────────────────────────────────────────┐   │   │
-│  │  │              Public Subnet                            │   │   │
-│  │  │                                                        │   │   │
-│  │  │  ┌──────────────────────────────────────────────┐   │   │   │
-│  │  │  │   EC2 Instance (t3.medium)                   │   │   │   │
-│  │  │  │   Ubuntu 22.04 LTS                           │   │   │   │
-│  │  │  │                                               │   │   │   │
-│  │  │  │  ┌────────────────────────────────────┐     │   │   │   │
-│  │  │  │  │     K3s Kubernetes Cluster         │     │   │   │   │
-│  │  │  │  │                                     │     │   │   │   │
-│  │  │  │  │  ┌──────────────────────────┐     │     │   │   │   │
-│  │  │  │  │  │   Argo CD (argocd ns)    │     │     │   │   │   │
-│  │  │  │  │  │   - Server                │     │     │   │   │   │
-│  │  │  │  │  │   - Repo Server           │     │     │   │   │   │
-│  │  │  │  │  │   - Application Controller│     │     │   │   │   │
-│  │  │  │  │  └──────────────────────────┘     │     │   │   │   │
-│  │  │  │  │                                     │     │   │   │   │
-│  │  │  │  │  ┌──────────────────────────┐     │     │   │   │   │
-│  │  │  │  │  │  App (default ns)         │     │     │   │   │   │
-│  │  │  │  │  │  - AWS Resources Viewer   │     │     │   │   │   │
-│  │  │  │  │  │  - NodePort: 30080        │     │     │   │   │   │
-│  │  │  │  │  └──────────────────────────┘     │     │   │   │   │
-│  │  │  │  └────────────────────────────────────┘     │   │   │   │
-│  │  │  │                                               │   │   │   │
-│  │  │  │  Ports:                                       │   │   │   │
-│  │  │  │  - 22 (SSH) ← Your IP Only                   │   │   │   │
-│  │  │  │  - 6443 (K3s API)                            │   │   │   │
-│  │  │  │  - 30080 (App) ← Public                      │   │   │   │
-│  │  │  │  - 30443 (Argo CD UI) ← Public               │   │   │   │
-│  │  │  └──────────────────────────────────────────────┘   │   │   │
-│  │  │                                                        │   │   │
-│  │  └────────────────────────────────────────────────────────┘   │   │
-│  │                                                                │   │
-│  │  Security Group: jb-project-sg                                │   │
-│  │  Internet Gateway: Routes to 0.0.0.0/0                        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                       │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "AWS Cloud - us-east-1"
+        subgraph "VPC - Default or Custom"
+            subgraph "Public Subnet"
+                EC2["EC2 Instance<br/>t3.medium<br/>Ubuntu 22.04"]
+                
+                subgraph "K3s Cluster"
+                    subgraph "argocd namespace"
+                        ArgoCD["Argo CD<br/>- Server<br/>- Repo Server<br/>- App Controller"]
+                    end
+                    
+                    subgraph "default namespace"
+                        App["AWS Resources Viewer<br/>NodePort: 30080"]
+                        Secret["Secret: aws-credentials"]
+                    end
+                end
+            end
+            
+            SG["Security Group<br/>jb-project-sg"]
+            IGW["Internet Gateway"]
+        end
+    end
+    
+    GitHub["GitHub Repository<br/>jb-gitops<br/>(Helm Charts)"]
+    DockerHub["Docker Hub<br/>formy5000/resources_viewer"]
+    User["User<br/>(Your IP)"]
+    Internet["Internet"]
+    
+    User -->|SSH:22| SG
+    Internet -->|App:30080| SG
+    Internet -->|ArgoCD:30443| SG
+    SG --> EC2
+    EC2 --> IGW
+    IGW --> Internet
+    ArgoCD -->|Syncs| GitHub
+    App -->|Pulls Image| DockerHub
+    App -->|Uses| Secret
+    ArgoCD -->|Deploys| App
 
-External Components:
-┌──────────────────────┐         ┌──────────────────────┐
-│  GitHub Repository   │         │   Docker Hub         │
-│  jb-gitops           │────────▶│  formy5000/          │
-│  (Helm Charts)       │         │  resources_viewer    │
-└──────────────────────┘         └──────────────────────┘
-         ▲
-         │
-    Argo CD Syncs
+    style EC2 fill:#ff9900
+    style ArgoCD fill:#ff6b6b
+    style App fill:#4ecdc4
+    style GitHub fill:#333
+    style DockerHub fill:#2496ed
 ```
 
-### GitOps Workflow Diagram
+### GitOps Workflow
 
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Git as GitHub<br/>jb-gitops
+    participant Argo as Argo CD
+    participant K3s as K3s Cluster
+    participant App as Application
+
+    Dev->>Git: 1. Push Helm chart changes
+    Note over Git: values.yaml updated
+    
+    Argo->>Git: 2. Poll for changes (every 3 min)
+    Git-->>Argo: New commit detected
+    
+    Argo->>Argo: 3. Compare desired vs current state
+    Note over Argo: Diff calculation
+    
+    Argo->>K3s: 4. Apply changes
+    Note over K3s: Create/Update resources
+    
+    K3s->>App: 5. Deploy/Update pods
+    App-->>K3s: Running
+    
+    K3s-->>Argo: 6. Report status
+    Argo-->>Dev: Sync complete
+    
+    Note over Argo,App: Self-Healing: If pods crash,<br/>Argo CD recreates them
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     GitOps Deployment Flow                       │
-└─────────────────────────────────────────────────────────────────┘
 
-1. Developer Push          2. Argo CD Detects       3. Argo CD Syncs
-   ┌──────────┐               ┌──────────┐             ┌──────────┐
-   │   Git    │──────────────▶│  Argo CD │────────────▶│   K3s    │
-   │  Commit  │   Changes     │  Watches │   Applies   │ Cluster  │
-   └──────────┘               └──────────┘             └──────────┘
-        │                           │                        │
-        │                           │                        │
-        ▼                           ▼                        ▼
-   Helm Charts              Compares Desired          Pods Running
-   values.yaml              vs Current State          Application Live
+### Deployment Flow
 
-4. Self-Healing: If pods crash or are deleted, Argo CD recreates them
-5. Auto-Prune: Removed resources from Git are deleted from cluster
+```mermaid
+flowchart TD
+    Start([terraform apply]) --> TF[Terraform Execution]
+    
+    TF --> VPC{Default VPC<br/>exists?}
+    VPC -->|Yes| UseDefault[Use Default VPC]
+    VPC -->|No| CreateVPC[Create VPC<br/>CIDR: 10.0.0.0/16]
+    
+    UseDefault --> SG[Create Security Group]
+    CreateVPC --> IGW[Create Internet Gateway]
+    IGW --> Subnet[Create Subnet<br/>CIDR: 10.0.1.0/24]
+    Subnet --> RT[Create Route Table]
+    RT --> SG
+    
+    SG --> KeyPair[Create Key Pair<br/>from ~/.ssh/id_rsa.pub]
+    KeyPair --> EC2[Launch EC2 Instance<br/>t3.medium, Ubuntu 22.04]
+    
+    EC2 --> UserData[Execute user-data.sh]
+    
+    UserData --> Update[System Update<br/>apt-get update & upgrade]
+    Update --> InstallK3s[Install K3s<br/>curl -sfL https://get.k3s.io]
+    InstallK3s --> WaitK3s[Wait for K3s Ready<br/>60 seconds]
+    
+    WaitK3s --> Tools[Install Tools<br/>kubectl, Helm]
+    Tools --> CreateSecret[Create AWS Secret<br/>in default namespace]
+    
+    CreateSecret --> InstallArgo[Install Argo CD<br/>in argocd namespace]
+    InstallArgo --> WaitArgo[Wait for Argo CD Pods<br/>up to 15 minutes]
+    
+    WaitArgo --> PatchArgo[Patch Argo CD Service<br/>NodePort: 30443]
+    PatchArgo --> GetPass[Save Argo CD Password<br/>to /home/ubuntu/argocd-password.txt]
+    
+    GetPass --> CreateApp[Create Argo CD Application<br/>pointing to jb-gitops repo]
+    CreateApp --> ArgoSync[Argo CD Syncs<br/>Deploys Helm chart]
+    
+    ArgoSync --> AppRunning[Application Running<br/>NodePort: 30080]
+    AppRunning --> Complete([✅ Deployment Complete])
+    
+    style Start fill:#90EE90
+    style Complete fill:#90EE90
+    style EC2 fill:#ff9900
+    style InstallArgo fill:#ff6b6b
+    style AppRunning fill:#4ecdc4
 ```
 
-### Network Flow Diagram
+### Network Flow
 
-```
-┌──────────────┐
-│   Internet   │
-└──────┬───────┘
-       │
-       ▼
-┌─────────────────────────────────────────────────────┐
-│            Internet Gateway                          │
-└─────────────────────────────────────────────────────┘
-       │
-       ▼
-┌─────────────────────────────────────────────────────┐
-│         Security Group (jb-project-sg)               │
-│  Rules:                                              │
-│  • SSH (22) ← Your IP Only                          │
-│  • K3s API (6443) ← 0.0.0.0/0                       │
-│  • App (30080) ← 0.0.0.0/0                          │
-│  • Argo CD (30443) ← 0.0.0.0/0                      │
-└─────────────────────────────────────────────────────┘
-       │
-       ▼
-┌─────────────────────────────────────────────────────┐
-│              EC2 Instance                            │
-│  ┌────────────────────────────────────────────┐    │
-│  │  K3s Cluster                                │    │
-│  │  ┌──────────────────────────────────────┐  │    │
-│  │  │  Service: aws-resources-viewer       │  │    │
-│  │  │  Type: NodePort                      │  │    │
-│  │  │  Port: 30080                         │  │    │
-│  │  │  ┌────────────────────────────────┐  │  │    │
-│  │  │  │  Pod: resources-viewer         │  │  │    │
-│  │  │  │  Container Port: 5000          │  │  │    │
-│  │  │  │  Env: AWS_ACCESS_KEY_ID        │  │  │    │
-│  │  │  │       AWS_SECRET_ACCESS_KEY    │  │  │    │
-│  │  │  └────────────────────────────────┘  │  │    │
-│  │  └──────────────────────────────────────┘  │    │
-│  └────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────┘
-       │
-       │ AWS SDK Calls
-       ▼
-┌─────────────────────────────────────────────────────┐
-│         AWS APIs (EC2, S3, RDS, etc.)               │
-│         Queries resources in specified region        │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Internet
+        User[User Browser]
+        SSH[SSH Client]
+    end
+    
+    subgraph "AWS Security Group"
+        Rule1[SSH: 22<br/>Your IP Only]
+        Rule2[K3s API: 6443<br/>0.0.0.0/0]
+        Rule3[App: 30080<br/>0.0.0.0/0]
+        Rule4[Argo CD: 30443<br/>0.0.0.0/0]
+    end
+    
+    subgraph "EC2 Instance"
+        subgraph "K3s Services"
+            AppSvc[Service: aws-resources-viewer<br/>Type: NodePort<br/>Port: 30080]
+            ArgoSvc[Service: argocd-server<br/>Type: NodePort<br/>Port: 30443]
+        end
+        
+        subgraph "Pods"
+            AppPod[Pod: resources-viewer<br/>Container Port: 5000<br/>Env: AWS Credentials]
+        end
+    end
+    
+    subgraph "AWS APIs"
+        EC2API[EC2 API]
+        S3API[S3 API]
+        RDSAPI[RDS API]
+    end
+    
+    User -->|HTTP:30080| Rule3
+    User -->|HTTPS:30443| Rule4
+    SSH -->|SSH:22| Rule1
+    
+    Rule3 --> AppSvc
+    Rule4 --> ArgoSvc
+    Rule1 --> EC2Instance[SSH Access]
+    
+    AppSvc --> AppPod
+    AppPod -->|AWS SDK Calls| EC2API
+    AppPod -->|AWS SDK Calls| S3API
+    AppPod -->|AWS SDK Calls| RDSAPI
+    
+    style User fill:#4ecdc4
+    style AppPod fill:#4ecdc4
+    style Rule1 fill:#ff6b6b
+    style Rule3 fill:#90EE90
 ```
 
 ---
@@ -187,51 +236,56 @@ External Components:
 | **Docker** | - | Container runtime (via K3s) |
 | **Ubuntu** | 22.04 LTS | Operating system |
 | **GitHub** | - | Git repository for GitOps |
-| **AWS SDK** | - | Application queries AWS resources |
+| **AWS SDK** | boto3 | Application queries AWS resources |
 
 ---
 
 ## 🧩 Infrastructure Components
 
-### 1. **VPC & Networking**
-- **VPC**: Uses default VPC if available, creates new one if not
-- **Subnet**: Public subnet with auto-assign public IP
-- **Internet Gateway**: Enables internet connectivity
-- **Route Table**: Routes traffic to internet gateway
+### 1. VPC & Networking
+- **VPC**: Automatically uses default VPC if available, creates new one (10.0.0.0/16) if not
+- **Subnet**: Public subnet (10.0.1.0/24) with auto-assign public IP
+- **Internet Gateway**: Enables internet connectivity (only if VPC created)
+- **Route Table**: Routes traffic to internet gateway (0.0.0.0/0)
 
-### 2. **Security Group**
+### 2. Security Group (`jb-project-sg`)
 Firewall rules controlling access:
-- **Port 22 (SSH)**: Restricted to your IP only
-- **Port 6443 (K3s API)**: Open for Kubernetes API access
-- **Port 30080 (Application)**: Public access to web app
-- **Port 30443 (Argo CD UI)**: Public access to Argo CD dashboard
+- **Port 22 (SSH)**: Restricted to your IP only (configured via `your_ip` variable)
+- **Port 6443 (K3s API)**: Open to 0.0.0.0/0 for Kubernetes API access
+- **Port 30080 (Application)**: Open to 0.0.0.0/0 for public web app access
+- **Port 30443 (Argo CD UI)**: Open to 0.0.0.0/0 for Argo CD dashboard access
+- **Egress**: All outbound traffic allowed
 
-### 3. **EC2 Instance**
-- **Type**: t3.medium (2 vCPU, 4GB RAM)
-- **AMI**: Ubuntu 22.04 LTS (latest)
+### 3. EC2 Instance
+- **Type**: t3.medium (2 vCPU, 4GB RAM) - configurable via `instance_type` variable
+- **AMI**: Ubuntu 22.04 LTS (latest, automatically fetched)
 - **Storage**: 20GB GP3 EBS volume
-- **Key Pair**: Uses your local SSH key
+- **Key Pair**: Uses your local SSH key from `~/.ssh/id_rsa.pub`
+- **User Data**: Automated bootstrap script (`user-data.sh`)
 
-### 4. **K3s Cluster**
+### 4. K3s Cluster
 Lightweight Kubernetes with:
-- Single-node cluster
-- Built-in container runtime
-- Traefik ingress controller
+- Single-node cluster configuration
+- Built-in container runtime (containerd)
+- Traefik ingress controller (default)
 - CoreDNS for service discovery
+- Kubeconfig at `/etc/rancher/k3s/k3s.yaml`
 
-### 5. **Argo CD**
+### 5. Argo CD
 GitOps deployment tool:
-- Monitors Git repository for changes
-- Automatically syncs Kubernetes manifests
-- Self-healing and auto-pruning enabled
-- Web UI for visualization
+- Monitors Git repository: `https://github.com/githuber20202/jb-gitops.git`
+- Automatically syncs Kubernetes manifests every 3 minutes
+- Self-healing enabled (recreates failed pods)
+- Auto-pruning enabled (removes deleted resources)
+- Web UI exposed on NodePort 30443
 
-### 6. **Application**
-AWS Resources Viewer:
-- Python Flask application
-- Displays AWS resources (EC2, S3, RDS, etc.)
-- Uses AWS SDK with provided credentials
-- Deployed via Helm chart
+### 6. Application (AWS Resources Viewer)
+- **Image**: `formy5000/resources_viewer` from Docker Hub
+- **Language**: Python Flask application
+- **Features**: Displays AWS resources (EC2, S3, RDS, etc.)
+- **Authentication**: Uses AWS credentials from Kubernetes secret
+- **Deployment**: Via Helm chart from jb-gitops repository
+- **Exposure**: NodePort service on port 30080
 
 ---
 
@@ -251,39 +305,49 @@ AWS Resources Viewer:
    wget https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
    unzip terraform_1.6.0_linux_amd64.zip
    sudo mv terraform /usr/local/bin/
+   
+   # Verify installation
+   terraform version
    ```
 
-2. **AWS CLI** (configured)
+2. **AWS CLI** (configured with credentials)
    ```bash
    # Install
    pip install awscli
    
-   # Configure
+   # Configure with your Terraform AWS credentials
    aws configure
    # Enter: Access Key, Secret Key, Region (us-east-1), Output format (json)
+   
+   # Verify
+   aws sts get-caller-identity
    ```
 
 3. **SSH Key Pair**
    ```bash
    # Generate if you don't have one
    ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa
+   
+   # Verify public key exists
+   cat ~/.ssh/id_rsa.pub
    ```
 
 ### AWS Requirements
 
 - **AWS Account** with appropriate permissions
-- **IAM User** with programmatic access
-- **Permissions needed**:
-  - EC2 (create instances, security groups, key pairs)
-  - VPC (create VPC, subnets, internet gateways)
-  - IAM (for application to query AWS resources)
+- **IAM User** with programmatic access for Terraform
+- **Permissions needed for Terraform**:
+  - EC2: Full access (create instances, security groups, key pairs)
+  - VPC: Full access (create VPC, subnets, internet gateways, route tables)
+  - Read access to availability zones and AMIs
 
 ### Application AWS Credentials
 
-The application needs AWS credentials to query resources:
-- Create an IAM user with **ReadOnlyAccess** policy
+The application needs **separate** AWS credentials to query resources:
+- Create an IAM user with **ReadOnlyAccess** policy (or specific read permissions)
 - Generate access keys for this user
-- These will be stored as Kubernetes secrets (not in Git!)
+- These credentials will be stored as Kubernetes secrets (not in Git!)
+- **Important**: These are different from your Terraform AWS credentials
 
 ---
 
@@ -292,40 +356,52 @@ The application needs AWS credentials to query resources:
 ```
 jb-terraform/
 ├── main.tf                 # Main infrastructure definition
-│   ├── VPC & Networking
-│   ├── Security Groups
-│   ├── EC2 Instance
-│   └── User Data template
+│   ├── Data sources (AMI, VPC, subnets)
+│   ├── VPC & Networking (conditional creation)
+│   ├── Security Group (jb-project-sg)
+│   ├── Key Pair (from ~/.ssh/id_rsa.pub)
+│   └── EC2 Instance with user data
 │
 ├── variables.tf            # Input variables
-│   ├── AWS region
-│   ├── Instance type
-│   ├── Your IP address
-│   ├── GitOps repository
-│   └── AWS credentials (sensitive)
+│   ├── aws_region (default: us-east-1)
+│   ├── instance_type (default: t3.medium)
+│   ├── project_name (default: jb-project)
+│   ├── your_ip (required - your public IP)
+│   ├── gitops_repo (default: jb-gitops)
+│   ├── docker_image (default: formy5000/resources_viewer)
+│   ├── aws_access_key_id (sensitive)
+│   ├── aws_secret_access_key (sensitive)
+│   └── aws_app_region (default: us-east-1)
 │
 ├── outputs.tf              # Output values
-│   ├── Instance IP
-│   ├── Application URL
-│   ├── Argo CD URL
-│   └── SSH command
+│   ├── instance_id
+│   ├── instance_public_ip
+│   ├── app_url (http://<IP>:30080)
+│   ├── argocd_url (https://<IP>:30443)
+│   ├── ssh_command
+│   └── important_info (formatted summary)
 │
 ├── provider.tf             # AWS provider configuration
+│   └── AWS provider with region
 │
 ├── user-data.sh            # EC2 bootstrap script
-│   ├── System updates
+│   ├── System updates (apt-get)
 │   ├── K3s installation
+│   ├── kubectl & Helm installation
+│   ├── AWS credentials secret creation
 │   ├── Argo CD installation
-│   ├── Secret creation
-│   └── Application deployment
+│   ├── Argo CD service patching (NodePort)
+│   ├── Argo CD Application creation
+│   └── Info files generation
 │
 ├── terraform.tfvars        # Variable values (gitignored)
-│   └── Contains sensitive data
+│   └── Contains sensitive data - DO NOT COMMIT
 │
 ├── .gitignore              # Git ignore rules
-│   ├── *.tfstate
+│   ├── *.tfstate*
 │   ├── *.tfvars
-│   └── .terraform/
+│   ├── .terraform/
+│   └── .terraform.lock.hcl
 │
 └── Readme.md               # This file
 ```
@@ -347,20 +423,24 @@ Create a file named `terraform.tfvars` with your values:
 
 ```hcl
 # Your public IP for SSH access (find it at https://whatismyip.com)
+# IMPORTANT: Must include /32 suffix
 your_ip = "82.166.123.45/32"
 
 # AWS credentials for the application (NOT your Terraform credentials)
+# These should be from an IAM user with ReadOnlyAccess policy
 aws_access_key_id     = "AKIAIOSFODNN7EXAMPLE"
 aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 aws_app_region        = "us-east-1"
 
-# Optional: Override defaults
+# Optional: Override defaults if needed
 # aws_region      = "us-east-1"
 # instance_type   = "t3.medium"
 # project_name    = "jb-project"
+# gitops_repo     = "https://github.com/githuber20202/jb-gitops.git"
+# docker_image    = "formy5000/resources_viewer"
 ```
 
-**⚠️ Important**: This file is in `.gitignore` and will NOT be committed to Git!
+**⚠️ Security Note**: This file is in `.gitignore` and will NOT be committed to Git!
 
 ### Step 3: Initialize Terraform
 
@@ -380,24 +460,46 @@ Initializing provider plugins...
 Terraform has been successfully initialized!
 ```
 
-### Step 4: Plan the Deployment
+### Step 4: Validate Configuration
+
+```bash
+terraform validate
+```
+
+**Expected output:**
+```
+Success! The configuration is valid.
+```
+
+### Step 5: Plan the Deployment
 
 ```bash
 terraform plan
 ```
 
-Review the resources that will be created:
-- VPC components (if needed)
-- Security group
+Review the resources that will be created. Terraform will show:
+- VPC components (if default VPC doesn't exist)
+- Security group with 4 ingress rules
 - Key pair
-- EC2 instance
+- EC2 instance with user data
 
 **Expected output:**
 ```
-Plan: 8 to add, 0 to change, 0 to destroy.
+Plan: 5 to add, 0 to change, 0 to destroy.
+(or 8-10 if creating VPC)
+
+Changes to Outputs:
+  + app_url            = "http://<IP>:30080"
+  + argocd_url         = "https://<IP>:30443"
+  + important_info     = <<-EOT
+        ...
+    EOT
+  + instance_id        = "<instance-id>"
+  + instance_public_ip = "<IP>"
+  + ssh_command        = "ssh -i ~/.ssh/id_rsa ubuntu@<IP>"
 ```
 
-### Step 5: Apply the Configuration
+### Step 6: Apply the Configuration
 
 ```bash
 terraform apply
@@ -405,11 +507,14 @@ terraform apply
 
 Type `yes` when prompted.
 
-**Deployment time**: ~2-3 minutes for Terraform, then 5-10 minutes for the application setup.
+**Deployment time**: 
+- Terraform execution: ~2-3 minutes
+- User data script: ~5-10 minutes
+- Total: ~10-15 minutes
 
 **Expected output:**
 ```
-Apply complete! Resources: 8 added, 0 changed, 0 destroyed.
+Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
 
 Outputs:
 
@@ -440,136 +545,95 @@ important_info = <<EOT
 EOT
 ```
 
+### Step 7: Monitor Deployment Progress
+
+```bash
+# SSH to the instance
+ssh -i ~/.ssh/id_rsa ubuntu@<EC2_PUBLIC_IP>
+
+# Watch the user-data script execution
+tail -f /var/log/user-data.log
+
+# Check when setup is complete (look for "Setup Complete!" message)
+```
+
 ---
 
 ## 🔄 Deployment Flow
 
-### Detailed Step-by-Step Process
+### Timeline
 
+```mermaid
+gantt
+    title Deployment Timeline
+    dateFormat mm:ss
+    axisFormat %M:%S
+    
+    section Terraform
+    terraform apply           :00:00, 03:00
+    
+    section User Data Script
+    System Update            :03:00, 02:00
+    Install K3s              :05:00, 02:00
+    Wait for K3s             :07:00, 01:00
+    Install Tools            :08:00, 01:00
+    Create Secret            :09:00, 00:10
+    Install Argo CD          :09:10, 03:00
+    Wait for Argo CD         :12:10, 02:00
+    Configure Argo CD        :14:10, 00:30
+    Create Application       :14:40, 00:20
+    Argo CD Sync             :15:00, 01:00
+    
+    section Ready
+    Application Running      :16:00, 00:00
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Terraform Apply                               │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  1. Create VPC & Networking (if needed)                          │
-│     • VPC with CIDR 10.0.0.0/16                                 │
-│     • Public subnet                                              │
-│     • Internet gateway                                           │
-│     • Route table                                                │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  2. Create Security Group                                        │
-│     • SSH (22) from your IP                                     │
-│     • K3s API (6443) from anywhere                              │
-│     • App (30080) from anywhere                                 │
-│     • Argo CD (30443) from anywhere                             │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  3. Create Key Pair                                              │
-│     • Upload your public SSH key                                │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  4. Launch EC2 Instance                                          │
-│     • Ubuntu 22.04 LTS                                          │
-│     • t3.medium                                                  │
-│     • 20GB storage                                               │
-│     • User data script attached                                 │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              User Data Script Execution (5-10 min)               │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  5. System Setup                                                 │
-│     • apt-get update && upgrade                                 │
-│     • Install curl, git                                          │
-│     Duration: ~2 minutes                                         │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  6. Install K3s                                                  │
-│     • Download and install K3s                                  │
-│     • Configure kubeconfig                                       │
-│     • Wait for node to be ready                                 │
-│     Duration: ~2 minutes                                         │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  7. Install Tools                                                │
-│     • kubectl                                                    │
-│     • Helm 3                                                     │
-│     Duration: ~1 minute                                          │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  8. Create AWS Credentials Secret                                │
-│     • Create Kubernetes secret in default namespace             │
-│     • Contains: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY        │
-│     Duration: <10 seconds                                        │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  9. Install Argo CD                                              │
-│     • Create argocd namespace                                   │
-│     • Apply Argo CD manifests                                   │
-│     • Wait for all pods to be ready                             │
-│     • Patch service to NodePort                                 │
-│     • Save admin password                                        │
-│     Duration: ~3 minutes                                         │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  10. Create Argo CD Application                                  │
-│      • Define Application CRD                                   │
-│      • Point to GitHub repository                               │
-│      • Enable auto-sync and self-heal                           │
-│      Duration: <10 seconds                                       │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  11. Argo CD Syncs Application                                   │
-│      • Clones Git repository                                    │
-│      • Renders Helm chart                                       │
-│      • Applies Kubernetes manifests                             │
-│      • Creates deployment, service, etc.                        │
-│      Duration: ~1 minute                                         │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  12. Application Running                                         │
-│      • Pod pulls Docker image                                   │
-│      • Container starts                                          │
-│      • Service exposes on NodePort 30080                        │
-│      Duration: ~1 minute                                         │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    ✅ Deployment Complete!                       │
-│                                                                  │
-│  • Application accessible at http://<IP>:30080                  │
-│  • Argo CD UI at https://<IP>:30443                             │
-│  • All logs in /var/log/user-data.log                           │
-└─────────────────────────────────────────────────────────────────┘
-```
+
+### Detailed Process
+
+1. **Terraform Execution (0-3 min)**
+   - Creates/validates VPC and networking
+   - Creates security group with firewall rules
+   - Uploads SSH public key
+   - Launches EC2 instance
+   - Attaches user-data script
+
+2. **System Setup (3-5 min)**
+   - Updates Ubuntu packages (`apt-get update && upgrade`)
+   - Installs prerequisites (curl, git)
+
+3. **K3s Installation (5-8 min)**
+   - Downloads and installs K3s
+   - Configures kubeconfig at `/etc/rancher/k3s/k3s.yaml`
+   - Waits for node to be ready
+   - Sets up kubectl for ubuntu user
+
+4. **Tools Installation (8-9 min)**
+   - Installs kubectl binary
+   - Installs Helm 3
+
+5. **Secret Creation (9 min)**
+   - Creates Kubernetes secret `aws-credentials` in default namespace
+   - Contains: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+
+6. **Argo CD Installation (9-14 min)**
+   - Creates argocd namespace
+   - Applies Argo CD manifests from official repository
+   - Waits for all Argo CD pods to be ready (can take up to 15 min)
+   - Patches argocd-server service to NodePort 30443
+   - Retrieves and saves admin password
+
+7. **Application Deployment (14-16 min)**
+   - Creates Argo CD Application CRD
+   - Points to GitHub repository: jb-gitops
+   - Enables auto-sync and self-heal
+   - Argo CD clones repository and renders Helm chart
+   - Deploys application to default namespace
+   - Application pulls Docker image and starts
+
+8. **Completion (16 min)**
+   - Application accessible at http://<IP>:30080
+   - Argo CD UI accessible at https://<IP>:30443
+   - All logs available in `/var/log/user-data.log`
 
 ---
 
@@ -582,10 +646,13 @@ http://<EC2_PUBLIC_IP>:30080
 ```
 
 **Features:**
-- View AWS EC2 instances
+- View AWS EC2 instances in configured region
 - View S3 buckets
 - View RDS databases
-- View other AWS resources in the configured region
+- View other AWS resources
+- Real-time data from AWS APIs
+
+**Note**: Application uses credentials from the Kubernetes secret to query AWS.
 
 ### 2. Argo CD UI
 
@@ -593,20 +660,22 @@ http://<EC2_PUBLIC_IP>:30080
 https://<EC2_PUBLIC_IP>:30443
 ```
 
-**Login:**
+**Login Credentials:**
 - **Username**: `admin`
-- **Password**: SSH to instance and run:
+- **Password**: Retrieve via SSH:
   ```bash
   ssh -i ~/.ssh/id_rsa ubuntu@<EC2_PUBLIC_IP>
   cat /home/ubuntu/argocd-password.txt
   ```
 
-**Argo CD Dashboard shows:**
-- Application sync status
-- Git repository connection
-- Kubernetes resources
-- Sync history
-- Health status
+**Argo CD Dashboard Features:**
+- Application sync status (Synced/OutOfSync)
+- Git repository connection status
+- Kubernetes resources tree view
+- Sync history and logs
+- Health status of all components
+- Manual sync trigger
+- Diff view between Git and cluster
 
 ### 3. SSH Access
 
@@ -614,25 +683,47 @@ https://<EC2_PUBLIC_IP>:30443
 ssh -i ~/.ssh/id_rsa ubuntu@<EC2_PUBLIC_IP>
 ```
 
-**Useful commands once connected:**
+**Useful Commands:**
+
 ```bash
-# View cluster info
+# View cluster information
 cat /home/ubuntu/cluster-info.txt
 
-# Check all pods
+# View Argo CD password
+cat /home/ubuntu/argocd-password.txt
+
+# Check all pods across all namespaces
 kubectl get pods -A
 
-# Check Argo CD application
+# Check Argo CD application status
 kubectl get app -n argocd
+
+# Describe Argo CD application for details
+kubectl describe app aws-resources-viewer -n argocd
 
 # View application logs
 kubectl logs -n default -l app=aws-resources-viewer
 
-# Check Argo CD sync status
-kubectl describe app aws-resources-viewer -n argocd
+# Check application deployment
+kubectl get deployment -n default
+
+# View services
+kubectl get svc -A
+
+# Check nodes
+kubectl get nodes
+
+# View events
+kubectl get events -A --sort-by='.lastTimestamp'
+
+# Check K3s service status
+sudo systemctl status k3s
 
 # View user-data script logs
 tail -f /var/log/user-data.log
+
+# Check secret
+kubectl get secret aws-credentials -n default -o yaml
 ```
 
 ---
@@ -645,7 +736,7 @@ tail -f /var/log/user-data.log
 # SSH to instance
 ssh -i ~/.ssh/id_rsa ubuntu@<EC2_PUBLIC_IP>
 
-# Watch user-data script execution
+# Watch user-data script execution in real-time
 tail -f /var/log/user-data.log
 
 # Check if K3s is running
@@ -656,18 +747,24 @@ kubectl get pods -A
 
 # Check Argo CD application
 kubectl get app -n argocd
+
+# Wait for application to be synced
+kubectl wait --for=condition=Synced app/aws-resources-viewer -n argocd --timeout=300s
 ```
 
-### Common Issues
+### Common Issues & Solutions
 
-#### 1. Application Not Loading
+#### 1. Application Not Loading (Connection Refused)
 
-**Symptoms:** Browser shows "Connection refused" or timeout
+**Symptoms:** Browser shows "Connection refused" or timeout at port 30080
 
-**Solutions:**
+**Diagnosis:**
 ```bash
 # Check if pods are running
 kubectl get pods -n default
+
+# Check pod status
+kubectl describe pod -n default -l app=aws-resources-viewer
 
 # Check pod logs
 kubectl logs -n default -l app=aws-resources-viewer
@@ -676,33 +773,45 @@ kubectl logs -n default -l app=aws-resources-viewer
 kubectl get svc -n default
 
 # Verify NodePort
-kubectl get svc aws-resources-viewer -n default -o yaml | grep nodePort
+kubectl get svc aws-resources-viewer -n default -o jsonpath='{.spec.ports[0].nodePort}'
 ```
+
+**Solutions:**
+- Wait longer (application may still be pulling Docker image)
+- Check if Argo CD has synced: `kubectl get app -n argocd`
+- Manually trigger sync: `kubectl patch app aws-resources-viewer -n argocd --type merge -p '{"operation":{"sync":{}}}'`
+- Check security group allows port 30080
 
 #### 2. Argo CD Not Syncing
 
 **Symptoms:** Application shows "OutOfSync" in Argo CD UI
 
-**Solutions:**
+**Diagnosis:**
 ```bash
 # Check Argo CD application status
 kubectl get app -n argocd
 
-# Describe application for details
+# Describe application for detailed status
 kubectl describe app aws-resources-viewer -n argocd
 
-# Check Argo CD logs
+# Check Argo CD server logs
 kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server
 
-# Manually trigger sync
-kubectl patch app aws-resources-viewer -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"revision":"HEAD"}}}'
+# Check repo server logs
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server
 ```
+
+**Solutions:**
+- Verify Git repository is accessible
+- Check if Helm chart path is correct (aws-resources-viewer)
+- Manually trigger sync via UI or CLI
+- Check Argo CD has internet access
 
 #### 3. AWS Credentials Error
 
-**Symptoms:** Application shows "Unable to locate credentials"
+**Symptoms:** Application shows "Unable to locate credentials" or "Access Denied"
 
-**Solutions:**
+**Diagnosis:**
 ```bash
 # Check if secret exists
 kubectl get secret aws-credentials -n default
@@ -711,268 +820,127 @@ kubectl get secret aws-credentials -n default
 kubectl get secret aws-credentials -n default -o yaml
 
 # Check if pod has environment variables
-kubectl describe pod -n default -l app=aws-resources-viewer | grep -A 5 Environment
+kubectl describe pod -n default -l app=aws-resources-viewer | grep -A 10 Environment
+
+# Check pod logs for credential errors
+kubectl logs -n default -l app=aws-resources-viewer | grep -i credential
 ```
+
+**Solutions:**
+- Verify credentials in terraform.tfvars are correct
+- Ensure IAM user has ReadOnlyAccess policy
+- Recreate secret:
+  ```bash
+  kubectl delete secret aws-credentials -n default
+  # Then re-run user-data script section or manually create secret
+  ```
 
 #### 4. SSH Connection Refused
 
 **Symptoms:** Cannot SSH to instance
 
+**Diagnosis:**
+```bash
+# Check if instance is running
+aws ec2 describe-instances --instance-ids <instance-id>
+
+# Check security group rules
+aws ec2 describe-security-groups --group-ids <sg-id>
+
+# Verify your current IP
+curl https://api.ipify.org
+```
+
 **Solutions:**
-- Verify your IP hasn't changed: https://whatismyip.com
-- Update security group if needed:
+- Verify your IP hasn't changed
+- Update security group if IP changed:
   ```bash
-  # Get security group ID
-  terraform output | grep security_group
+  # Via Terraform
+  # Update your_ip in terraform.tfvars and run:
+  terraform apply
   
-  # Update via AWS Console or CLI
+  # Or via AWS CLI
   aws ec2 authorize-security-group-ingress \
-    --group-id sg-xxxxx \
+    --group-id <sg-id> \
     --protocol tcp \
     --port 22 \
     --cidr <NEW_IP>/32
   ```
+- Check SSH key permissions: `chmod 600 ~/.ssh/id_rsa`
 
-### Health Checks
+#### 5. K3s Not Starting
 
+**Symptoms:** K3s service fails to start
+
+**Diagnosis:**
 ```bash
-# Check node status
-kubectl get nodes
+# Check K3s service status
+sudo systemctl status k3s
 
-# Check all pods
-kubectl get pods -A
+# View K3s logs
+sudo journalctl -u k3s -n 100
 
-# Check services
-kubectl get svc -A
+# Check if port 6443 is available
+sudo netstat -tulpn | grep 6443
+```
 
-# Check Argo CD health
+**Solutions:**
+- Restart K3s: `sudo systemctl restart k3s`
+- Check system resources: `free -h` and `df -h`
+- Ensure instance type has enough resources (t3.medium recommended)
+
+#### 6. Argo CD Pods Not Ready
+
+**Symptoms:** Argo CD pods stuck in Pending or CrashLoopBackOff
+
+**Diagnosis:**
+```bash
+# Check all Argo CD pods
 kubectl get pods -n argocd
 
-# Check application deployment
-kubectl get deployment -n default
+# Describe problematic pod
+kubectl describe pod <pod-name> -n argocd
 
-# View events
-kubectl get events -A --sort-by='.lastTimestamp'
+# Check pod logs
+kubectl logs <pod-name> -n argocd
+```
+
+**Solutions:**
+- Wait longer (Argo CD can take 10-15 minutes to fully start)
+- Check node resources: `kubectl describe node`
+- Restart pod: `kubectl delete pod <pod-name> -n argocd`
+
+### Health Check Commands
+
+```bash
+# Overall cluster health
+kubectl get nodes
+kubectl get pods -A
+kubectl get svc -A
+
+# Argo CD health
+kubectl get pods -n argocd
+kubectl get app -n argocd
+
+# Application health
+kubectl get deployment -n default
+kubectl get pods -n default
+kubectl get svc -n default
+
+# View recent events
+kubectl get events -A --sort-by='.lastTimestamp' | tail -20
+
+# Check resource usage
+kubectl top nodes
+kubectl top pods -A
 ```
 
 ---
 
 ## 💰 Cost Analysis
 
-### AWS Free Tier Eligible
+### AWS Free Tier Considerations
 
-This project is designed to run within AWS Free Tier limits:
-
-| Resource | Free Tier | This Project | Cost |
-|----------|-----------|--------------|------|
-| **EC2 Instance** | 750 hours/month t2.micro | t3.medium (not free tier) | ~$30/month |
-| **EBS Storage** | 30 GB | 20 GB GP3 | $0 (within limit) |
-| **Data Transfer** | 100 GB out | Minimal | $0 (within limit) |
-| **Elastic IP** | 1 free if attached | Not used | $0 |
-
-**Note:** t3.medium is NOT free tier eligible. For free tier, change to t2.micro in `variables.tf`:
-```hcl
-variable "instance_type" {
-  default = "t2.micro"  # Free tier eligible
-}
-```
-
-**⚠️ Warning:** t2.micro may be too small for K3s + Argo CD + Application. Recommended minimum: t3.small
-
-### Cost Optimization Tips
-
-1. **Use t2.micro** for testing (free tier)
-2. **Stop instance** when not in use (no compute charges)
-3. **Delete resources** after testing with `terraform destroy`
-4. **Use spot instances** for production (up to 90% savings)
-5. **Monitor usage** with AWS Cost Explorer
-
----
-
-## 🔒 Security Considerations
-
-### Implemented Security Measures
-
-1. **SSH Access Restriction**
-   - Only your IP can SSH (configured via `your_ip` variable)
-   - Uses SSH key authentication (no passwords)
-
-2. **Secrets Management**
-   - AWS credentials stored as Kubernetes secrets
-   - Secrets not committed to Git (`.gitignore`)
-   - Terraform variables marked as `sensitive`
-
-3. **Network Security**
-   - Security group with minimal required ports
-   - Application runs in private container network
-   - Only necessary ports exposed via NodePort
-
-4. **IAM Best Practices**
-   - Application uses separate IAM user
-   - ReadOnly access for resource viewing
-   - No admin credentials in application
-
-### Security Recommendations
-
-1. **Use IAM Roles** instead of access keys (for production)
-   ```hcl
-   # Attach IAM role to EC2 instance
-   iam_instance_profile = aws_iam_instance_profile.app_profile.name
-   ```
-
-2. **Enable HTTPS** for Argo CD (production)
-   - Use Let's Encrypt certificates
-   - Configure Ingress with TLS
-
-3. **Restrict Argo CD Access**
-   - Change default admin password
-   - Configure SSO (GitHub, Google, etc.)
-   - Enable RBAC
-
-4. **Regular Updates**
-   ```bash
-   # Update K3s
-   curl -sfL https://get.k3
-.io | sh -
-   
-   # Update system packages
-   sudo apt-get update && sudo apt-get upgrade -y
-   ```
-
-5. **Network Segmentation**
-   - Use private subnets for application
-   - Place load balancer in public subnet
-   - Restrict database access to application only
-
----
-
-## 🧹 Cleanup
-
-### Destroy All Resources
-
-When you're done with the project, destroy all AWS resources to avoid charges:
-
-```bash
-terraform destroy
-```
-
-Type `yes` when prompted.
-
-**This will delete:**
-- EC2 instance
-- Security group
-- Key pair
-- VPC components (if created)
-- All data on the instance
-
-**⚠️ Warning:** This action is irreversible. Make sure to backup any important data first.
-
-### Verify Cleanup
-
-```bash
-# Check AWS Console to ensure all resources are deleted
-# Or use AWS CLI:
-aws ec2 describe-instances --filters "Name=tag:Project,Values=jb-project"
-aws ec2 describe-security-groups --filters "Name=tag:Project,Values=jb-project"
-```
-
----
-
-## 🎓 Learning Outcomes
-
-This project demonstrates proficiency in the following areas:
-
-### 1. Infrastructure as Code (IaC)
-- ✅ Writing Terraform configurations
-- ✅ Managing infrastructure state
-- ✅ Using variables and outputs
-- ✅ Templating with `templatefile()`
-- ✅ Conditional resource creation
-
-### 2. Cloud Computing (AWS)
-- ✅ EC2 instance management
-- ✅ VPC and networking concepts
-- ✅ Security groups and firewall rules
-- ✅ IAM and access management
-- ✅ Cost optimization strategies
-
-### 3. Kubernetes & Container Orchestration
-- ✅ K3s lightweight Kubernetes
-- ✅ Pod, Service, Deployment concepts
-- ✅ Namespaces and resource isolation
-- ✅ ConfigMaps and Secrets
-- ✅ NodePort service exposure
-
-### 4. GitOps & CI/CD
-- ✅ Argo CD for continuous deployment
-- ✅ Git as single source of truth
-- ✅ Automated synchronization
-- ✅ Self-healing applications
-- ✅ Declarative configuration
-
-### 5. DevOps Best Practices
-- ✅ Automation and scripting
-- ✅ Security best practices
-- ✅ Monitoring and troubleshooting
-- ✅ Documentation
-- ✅ Version control
-
-### 6. System Administration
-- ✅ Linux system management
-- ✅ Package installation
-- ✅ Service configuration
-- ✅ Log analysis
-- ✅ SSH and remote access
-
----
-
-## 📚 References
-
-### Official Documentation
-- [Terraform Documentation](https://www.terraform.io/docs)
-- [AWS Documentation](https://docs.aws.amazon.com/)
-- [K3s Documentation](https://docs.k3s.io/)
-- [Argo CD Documentation](https://argo-cd.readthedocs.io/)
-- [Helm Documentation](https://helm.sh/docs/)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
-
-### Related Repositories
-- [Infrastructure Repository](https://github.com/githuber20202/jb-terraform)
-- [GitOps Repository](https://github.com/githuber20202/jb-gitops)
-- [Docker Image](https://hub.docker.com/r/formy5000/resources_viewer)
-
-### Learning Resources
-- [Terraform Tutorial](https://learn.hashicorp.com/terraform)
-- [AWS Free Tier](https://aws.amazon.com/free/)
-- [GitOps Principles](https://www.gitops.tech/)
-- [Kubernetes Basics](https://kubernetes.io/docs/tutorials/kubernetes-basics/)
-
----
-
-## 📝 Project Summary
-
-This project successfully demonstrates:
-
-1. **Complete Automation**: Single command deployment of entire infrastructure
-2. **Modern DevOps Practices**: IaC, GitOps, containerization, orchestration
-3. **Cloud-Native Architecture**: Kubernetes, microservices, declarative configuration
-4. **Security Focus**: Secrets management, network isolation, access control
-5. **Production-Ready**: Monitoring, logging, troubleshooting capabilities
-
-**Total Deployment Time**: ~10-15 minutes  
-**Lines of Code**: ~500 (Terraform + Shell scripts)  
-**AWS Resources**: 8+ resources managed  
-**Technologies**: 9+ tools integrated  
-
----
-
-**Project Status**: ✅ Complete and Ready for Submission
-
-**Author**: Alexander Yasheyev  
-**Date**: January 2025  
-**Institution**: JB College  
-**Course**: CI/CD & DevOps  
-
----
-
-*For questions or issues, please open an issue in the GitHub repository.*
+| Resource | Free Tier | This Project | Monthly Cost |
+|----------|-----------|--------------|--------------|
+| **EC2 Instance** | 750
